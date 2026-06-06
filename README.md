@@ -3,7 +3,7 @@
 **仅限授权的渗透测试使用。**
 
 用小量密码对大量用户进行喷洒式认证测试，避免触发账户锁定策略。
-与传统暴力破解相反——一个密码试所有用户，而不是对一个用户试所有密码。
+与传统暴力破解相反——**一个密码试所有用户**，而不是对一个用户试所有密码。
 
 ## 支持的协议（16 种）
 
@@ -22,12 +22,12 @@
 ### 数据库
 | 协议       | 默认端口 | 依赖库    | 说明        |
 | ---------- | -------- | --------- | ----------- |
-| MySQL      | 3306     | pymysql   | MySQL 数据库 |
-| PostgreSQL | 5432     | pg8000    | PostgreSQL 数据库 |
-| MSSQL      | 1433     | pymssql   | SQL Server 数据库 |
-| Oracle     | 1521     | oracledb  | Oracle 数据库 |
-| MongoDB    | 27017    | pymongo   | MongoDB 数据库 |
-| Redis      | 6379     | redis-py  | Redis 缓存数据库 |
+| MySQL      | 3306     | pymysql   | MySQL       |
+| PostgreSQL | 5432     | pg8000    | PostgreSQL  |
+| MSSQL      | 1433     | pymssql   | SQL Server  |
+| Oracle     | 1521     | oracledb  | Oracle      |
+| MongoDB    | 27017    | pymongo   | MongoDB     |
+| Redis      | 6379     | redis-py  | Redis 缓存  |
 
 ### 邮件服务
 | 协议 | 默认端口 | 依赖库              | 说明 |
@@ -40,11 +40,12 @@
 ```bash
 git clone <本仓库地址>
 cd password-spray
-
-# 基础安装（仅核心协议）
 pip install -r requirements.txt
+```
 
-# 或按需安装部分依赖
+按需安装部分依赖：
+
+```bash
 pip install colorama requests   # HTTP 基础
 pip install impacket            # SMB
 pip install ldap3               # LDAP
@@ -56,54 +57,51 @@ pip install vncdotool           # VNC
 ## 快速开始
 
 ```bash
-# 网络服务
-python spray.py smb   -t 192.168.1.10 -U users.txt -P passwords.txt -d corp.local
-python spray.py ldap  -t dc.corp.local -U users.txt -P passwords.txt --ssl
-python spray.py http  -t https://mail.corp.com -U users.txt --http-method basic
-python spray.py ssh   -t 192.168.1.10 -U users.txt -P passwords.txt
-python spray.py winrm -t 192.168.1.10 -U users.txt -P passwords.txt
-python spray.py telnet -t 192.168.1.10 -U users.txt -P passwords.txt
-python spray.py ftp   -t 192.168.1.10 -U users.txt -P passwords.txt
-python spray.py vnc   -t 192.168.1.10 -P passwords.txt
+# 一个密码喷洒所有 SMB 用户
+python spray.py smb -t 192.168.1.10 -U users.txt -p 'Spring2026!' -d corp
 
-# 数据库
-python spray.py mysql     -t 192.168.1.10 -U users.txt -P passwords.txt
-python spray.py postgresql -t 192.168.1.10 -U users.txt -P passwords.txt
-python spray.py mssql     -t 192.168.1.10 -U users.txt -P passwords.txt
-python spray.py oracle    -t 192.168.1.10 -U users.txt -P passwords.txt --sid ORCL
-python spray.py mongodb   -t 192.168.1.10 -U users.txt -P passwords.txt --auth-db admin
-python spray.py redis     -t 192.168.1.10 -P passwords.txt
+# 多个密码逐个喷洒 LDAP 用户
+python spray.py ldap -t dc.corp.local -U users.txt -p 'P@ssw0rd' -p 'Welcome1' --ssl
 
-# 邮件服务
-python spray.py imap -t mail.corp.com -U users.txt -P passwords.txt --ssl
-python spray.py pop3 -t mail.corp.com -U users.txt -P passwords.txt --ssl
+# SSH
+python spray.py ssh -t 192.168.1.10 -U users.txt -p 'Welcome1'
+
+# MySQL
+python spray.py mysql -t 192.168.1.10 -U users.txt -p 'root'
+
+# Redis（空密码）
+python spray.py redis -t 192.168.1.10 -U users.txt -p ''
+
+# 邮件
+python spray.py imap -t mail.corp.com -U users.txt -p 'Spring2026!' --ssl
 ```
 
-## 密码来源（三种方式可同时使用）
+## 密码来源（两种方式可混用）
 
-### 1. 密码文件 `-P`
-
-```
-python spray.py smb -t 10.0.0.1 -U users.txt -P passwords.txt
-```
-
-### 2. 命令行指定 `-p`
+### 1. 命令行指定 `-p`（核心方式）
 
 ```
-# 单个或重复使用
-python spray.py smb -t 10.0.0.1 -U users.txt -p "Spring2026!" -p "P@ssw0rd"
+# 单个密码喷洒所有用户 ← 标准喷洒模式
+python spray.py smb -t 10.0.0.1 -U users.txt -p 'Spring2026!' -d corp
 
-# Redis 空密码
-python spray.py redis -t 10.0.0.1 -p ""
+# 多个密码（每个密码一轮，间互有冷静期）
+python spray.py smb -t 10.0.0.1 -U users.txt -p 'Spring2026!' -p 'P@ssw0rd' -p 'Welcome1' -d corp
+
+# 空密码（Redis/lDAP 等常见场景）
+python spray.py redis -t 10.0.0.1 -U users.txt -p ''
 ```
 
-### 3. 模板生成 `--generate`
+### 2. 模板生成 `--generate`
 
 ```
+# 生成 Spring2026! Summer2026! 等（每个密码一轮）
+python spray.py smb -t 10.0.0.1 -U users.txt --generate '{Season}{Year}{Special}' -d corp
+
+# 混用 -p 和 --generate
 python spray.py smb -t 10.0.0.1 -U users.txt \
-  --generate "{Season}{Year}{Special}" \
-  --generate "{Company}{Number}!" \
-  --company "Acme"
+  -p 'P@ssw0rd' \
+  --generate '{Season}{Year}{Special}' \
+  --company 'Acme' -d corp
 ```
 
 #### 模板变量
@@ -123,24 +121,23 @@ python spray.py smb -t 10.0.0.1 -U users.txt \
 | `{Special}`     | !, @, #, !!, 123, 123!, 123456 ...           |
 | `{Number}`      | 0 - 99                                       |
 | `{Number999}`   | 0 - 999                                      |
-| `{Company}`     | 自定义公司名（需 `--company`）                |
+| `{Company}`     | 自定义公司名（`--company` 指定）              |
 | `{company}`     | 小写公司名                                    |
 | `{City}`        | London, Paris, Berlin, Tokyo ...             |
 | `{city}`        | london, paris, berlin ...                    |
 | `{Word}`        | Password, Welcome, Admin, Company ...        |
 | `{word}`        | password, welcome, admin ...                 |
 
-## 通用参数
+## 参数
 
 | 参数                | 默认值 | 说明                          |
 | ------------------- | ------ | ----------------------------- |
 | `-t, --target`      | 必填   | 目标 IP 或主机名               |
-| `-U, --users`       | 必填¹  | 用户名文件，每行一个            |
-| `-P, --passwords`   | —      | 密码字典文件                   |
-| `-p, --password`    | —      | 直接指定密码（可多次使用）       |
-| `--generate`        | —      | 密码生成模板（可多次使用）       |
-| `--company`         | —      | 模板中 `{Company}` 的替换值    |
-| `--year`            | 当前年  | 模板中 `{Year}` 的基准年份     |
+| `-U, --users`       | 必填   | 用户列表文件，每行一个用户名    |
+| `-p, --password`    | 必填   | 要喷洒的密码（可多次使用）      |
+| `--generate`        | —      | 密码生成模板（可多次使用）      |
+| `--company`         | —      | 模板 `{Company}` 的替换值      |
+| `--year`            | 当前年  | 模板 `{Year}` 的基准年份       |
 | `--threads N`       | 5      | 并发线程数                     |
 | `--delay S`         | 1.0    | 每轮内尝试间隔（秒）            |
 | `--round-delay S`   | 300    | 每轮之间冷却时间（秒）           |
@@ -148,8 +145,6 @@ python spray.py smb -t 10.0.0.1 -U users.txt \
 | `--state-file`      | —      | 进度保存文件，支持断点续传       |
 | `--resume`          | —      | 从状态文件恢复上次中断的喷洒      |
 | `--dry-run`         | —      | 试运行，验证输入但不实际认证      |
-
-> ¹ `redis` 不需要 `-U`，但为了接口统一也接受用户文件，留空即可。
 
 ## 各协议专属参数
 
@@ -160,40 +155,31 @@ python spray.py smb -t 10.0.0.1 -U users.txt \
 | http | `--http-method` | basic\|ntlm\|digest\|form |
 | http | `--form-*` | 表单认证参数 |
 | http | `--no-ssl-verify` | 跳过 TLS 验证 |
-| ssh | `--port` | 自定义端口（默认 22） |
-| winrm | `--ssl / --no-ssl`, `--port` | 切换 HTTP/HTTPS |
-| telnet | `--port` | 自定义端口（默认 23） |
-| ftp | `--port` | 自定义端口（默认 21） |
-| mysql | `--port` | 默认 3306 |
-| postgresql | `--port` | 默认 5432 |
-| mssql | `--port` | 默认 1433 |
-| oracle | `--port`, `--sid` | 默认 1521，SID 默认 XE |
-| mongodb | `--port`, `--auth-db` | 默认 27017，认证库默认 admin |
-| redis | `--port` | 默认 6379 |
-| imap | `--ssl`, `--port` | IMAPS (993) |
-| pop3 | `--ssl`, `--port` | POP3S (995) |
+| ssh/winrm/telnet/ftp | `--port` | 自定义端口 |
+| oracle | `--sid` | SID（默认 XE） |
+| mongodb | `--auth-db` | 认证数据库（默认 admin） |
+| imap/pop3 | `--ssl`, `--port` | 加密连接 / 自定义端口 |
 | vnc | `--port` | 默认 5900 |
 
 ## 断点续传
 
 ```bash
-# 第一次运行 — 每轮自动保存进度
-python spray.py smb -t 10.0.0.5 -U users.txt -P passwords.txt --state-file spray.json
+# 第一轮运行 — 每轮自动保存进度
+python spray.py smb -t 10.0.0.5 -U users.txt -p 'Spring2026!' --state-file spray.json
 
-# 按 Ctrl+C 中断后恢复:
-python spray.py smb -t 10.0.0.5 -U users.txt -P passwords.txt --state-file spray.json --resume
+# Ctrl+C 中断后恢复:
+python spray.py smb -t 10.0.0.5 -U users.txt -p 'Spring2026!' --state-file spray.json --resume
 ```
 
 ## 特性
 
-- **16 种协议** — 覆盖网络服务、数据库、邮件、远程桌面
-- **三源密码** — 文件 + 命令行 + 模板生成，自动去重合并
-- **保守默认值** — 5 线程、1 秒间隔、5 分钟轮间冷却
-- **试运行模式** — `--dry-run` 先验证所有输入再执行
-- **锁定检测** — 自动识别账户锁定状态
-- **断点续传** — 中断后可恢复，不丢失已完成轮次的进度
-- **彩色输出** — 实时进度条 + 成功/失败高亮
-- **CSV/JSON 输出** — 结果可导出用于报告
+- **16 种协议** — 网络服务、数据库、邮件、远程桌面全覆盖
+- **喷洒模式** — 一个密码试所有用户，轮间有冷却避免锁定
+- **模板生成** — 内置常用密码模式，无需外挂字典
+- **断点续传** — 中断不丢失进度
+- **锁定检测** — 自动识别并报告账户锁定
+- **彩色输出** — 实时进度 + 成功/失败/锁定高亮
+- **CSV/JSON 输出** — 结果导出
 
 ## 免责声明
 
