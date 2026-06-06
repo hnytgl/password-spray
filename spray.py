@@ -21,20 +21,43 @@ from colorama import Fore, Style, init as colorama_init
 
 from generator import generate_multi
 from protocols.base import AuthResult, Result
+from protocols.database import (
+    MySQLProtocol,
+    PostgreSQLProtocol,
+    MSSQLProtocol,
+    OracleProtocol,
+    MongoDBProtocol,
+    RedisProtocol,
+)
+from protocols.email import IMAPProtocol, POP3Protocol
+from protocols.ftp import FTPProtocol
 from protocols.http import HTTPProtocol
 from protocols.ldap import LDAPProtocol
 from protocols.smb import SMBProtocol
 from protocols.ssh import SSHProtocol
+from protocols.telnet import TelnetProtocol
+from protocols.vnc import VNCProtocol
 from protocols.winrm import WinRMProtocol
 
 colorama_init(autoreset=True)
 
 PROTOCOLS = {
-    "smb": SMBProtocol,
-    "ldap": LDAPProtocol,
-    "http": HTTPProtocol,
-    "ssh": SSHProtocol,
-    "winrm": WinRMProtocol,
+    "smb":       SMBProtocol,
+    "ldap":      LDAPProtocol,
+    "http":      HTTPProtocol,
+    "ssh":       SSHProtocol,
+    "winrm":     WinRMProtocol,
+    "telnet":    TelnetProtocol,
+    "ftp":       FTPProtocol,
+    "mysql":     MySQLProtocol,
+    "postgresql": PostgreSQLProtocol,
+    "mssql":     MSSQLProtocol,
+    "oracle":    OracleProtocol,
+    "mongodb":   MongoDBProtocol,
+    "redis":     RedisProtocol,
+    "imap":      IMAPProtocol,
+    "pop3":      POP3Protocol,
+    "vnc":       VNCProtocol,
 }
 
 
@@ -357,6 +380,220 @@ def save_output(results, path):
 # CLI
 # ------------------------------------------------------------------
 
+def build_subparsers(subparsers):
+    """Build all protocol subparsers and return them."""
+    def add_common(p):
+        p.add_argument("-t", "--target", required=True,
+                       help="目标 IP 或主机名")
+        p.add_argument("-U", "--users", required=True,
+                       help="用户名字典文件，每行一个")
+        p.add_argument("-P", "--passwords", default=None,
+                       help="密码字典文件，每行一个")
+        p.add_argument("-p", "--password", action="append", default=None,
+                       help="直接指定单个密码（可多次使用）")
+        p.add_argument("--generate", action="append", default=None,
+                       help="密码生成模板（可多次使用），如 '{Season}{Year}{Special}'")
+        p.add_argument("--company", default="",
+                       help="公司名，用于模板中的 {Company} 替换")
+        p.add_argument("--year", type=int, default=None,
+                       help="基准年份，用于模板中的 {Year}（默认当前年份）")
+        p.add_argument("--max-combinations", type=int, default=50000,
+                       help="模板生成密码数上限（默认 50000）")
+        p.add_argument("-o", "--output", help="结果输出文件 (.csv 或 .json)")
+        p.add_argument("--threads", type=int, default=5,
+                       help="并发线程数（默认 5）")
+        p.add_argument("--delay", type=float, default=1.0,
+                       help="每轮内尝试间隔秒数（默认 1.0）")
+        p.add_argument("--round-delay", type=float, default=300,
+                       help="每轮之间间隔秒数（默认 300）")
+        p.add_argument("--state-file", help="保存/恢复进度的 JSON 文件")
+        p.add_argument("--resume", action="store_true",
+                       help="从状态文件恢复进度")
+        p.add_argument("--dry-run", action="store_true",
+                       help="仅验证输入，不执行喷洒")
+
+    # -- 网络协议 --
+    p_smb = subparsers.add_parser("smb", help="SMB (port 445)")
+    add_common(p_smb)
+    p_smb.add_argument("-d", "--domain", default="", help="Windows 域名")
+
+    p_ldap = subparsers.add_parser("ldap", help="LDAP/LDAPS (389/636)")
+    add_common(p_ldap)
+    p_ldap.add_argument("--ssl", action="store_true", help="使用 LDAPS (636)")
+    p_ldap.add_argument("--port", type=int, help="自定义端口")
+
+    p_http = subparsers.add_parser("http", help="HTTP/HTTPS (80/443)")
+    add_common(p_http)
+    p_http.add_argument("--http-method", default="basic",
+                        choices=["basic", "ntlm", "digest", "form"],
+                        help="认证方式（默认 basic）")
+    p_http.add_argument("-d", "--domain", default="", help="NTLM 域名")
+    p_http.add_argument("--form-url", help="表单登录 POST URL")
+    p_http.add_argument("--form-user-field", default="username",
+                        help="用户名字段名（默认 username）")
+    p_http.add_argument("--form-pass-field", default="password",
+                        help="密码字段名（默认 password）")
+    p_http.add_argument("--form-success",
+                        help="响应中表示登录成功的字符串")
+    p_http.add_argument("--form-extra",
+                        help="额外表单字段: key=val,key=val")
+    p_http.add_argument("--no-ssl-verify", action="store_true",
+                        help="禁用 TLS 证书验证")
+
+    p_ssh = subparsers.add_parser("ssh", help="SSH (port 22)")
+    add_common(p_ssh)
+    p_ssh.add_argument("--port", type=int, default=22,
+                       help="SSH 端口（默认 22）")
+
+    p_winrm = subparsers.add_parser("winrm", help="WinRM (5985/5986)")
+    add_common(p_winrm)
+    p_winrm.add_argument("--ssl", action="store_true", default=True,
+                         help="使用 HTTPS / 5986（默认）")
+    p_winrm.add_argument("--no-ssl", action="store_false", dest="ssl",
+                         help="使用 HTTP / 5985")
+    p_winrm.add_argument("--port", type=int, help="自定义端口")
+
+    p_telnet = subparsers.add_parser("telnet", help="Telnet (port 23)")
+    add_common(p_telnet)
+    p_telnet.add_argument("--port", type=int, default=23,
+                          help="Telnet 端口（默认 23）")
+
+    p_ftp = subparsers.add_parser("ftp", help="FTP (port 21)")
+    add_common(p_ftp)
+    p_ftp.add_argument("--port", type=int, default=21,
+                       help="FTP 端口（默认 21）")
+
+    # -- 数据库 --
+    p_mysql = subparsers.add_parser("mysql", help="MySQL (port 3306)")
+    add_common(p_mysql)
+    p_mysql.add_argument("--port", type=int, default=3306,
+                         help="MySQL 端口（默认 3306）")
+
+    p_pg = subparsers.add_parser("postgresql", help="PostgreSQL (port 5432)")
+    add_common(p_pg)
+    p_pg.add_argument("--port", type=int, default=5432,
+                      help="PostgreSQL 端口（默认 5432）")
+
+    p_mssql = subparsers.add_parser("mssql", help="MSSQL (port 1433)")
+    add_common(p_mssql)
+    p_mssql.add_argument("--port", type=int, default=1433,
+                         help="MSSQL 端口（默认 1433）")
+
+    p_oracle = subparsers.add_parser("oracle", help="Oracle (port 1521)")
+    add_common(p_oracle)
+    p_oracle.add_argument("--port", type=int, default=1521,
+                          help="Oracle 端口（默认 1521）")
+    p_oracle.add_argument("--sid", default="XE",
+                          help="Oracle SID（默认 XE）")
+
+    p_mongo = subparsers.add_parser("mongodb", help="MongoDB (port 27017)")
+    add_common(p_mongo)
+    p_mongo.add_argument("--port", type=int, default=27017,
+                         help="MongoDB 端口（默认 27017）")
+    p_mongo.add_argument("--auth-db", default="admin",
+                         help="认证数据库（默认 admin）")
+
+    p_redis = subparsers.add_parser("redis", help="Redis (port 6379)")
+    add_common(p_redis)
+    p_redis.add_argument("--port", type=int, default=6379,
+                         help="Redis 端口（默认 6379）")
+
+    # -- 邮件 --
+    p_imap = subparsers.add_parser("imap", help="IMAP/IMAPS (143/993)")
+    add_common(p_imap)
+    p_imap.add_argument("--ssl", action="store_true",
+                        help="使用 IMAPS (993)")
+    p_imap.add_argument("--port", type=int, help="自定义端口")
+
+    p_pop3 = subparsers.add_parser("pop3", help="POP3/POP3S (110/995)")
+    add_common(p_pop3)
+    p_pop3.add_argument("--ssl", action="store_true",
+                        help="使用 POP3S (995)")
+    p_pop3.add_argument("--port", type=int, help="自定义端口")
+
+    # -- 远程桌面 --
+    p_vnc = subparsers.add_parser("vnc", help="VNC (port 5900)")
+    add_common(p_vnc)
+    p_vnc.add_argument("--port", type=int, default=5900,
+                       help="VNC 端口（默认 5900）")
+
+
+def build_protocol_kwargs(args):
+    """Build protocol keyword arguments from parsed CLI args."""
+    pkwargs = {}
+
+    if args.cmd == "smb":
+        pkwargs["domain"] = args.domain
+
+    elif args.cmd == "ldap":
+        pkwargs["use_ssl"] = args.ssl
+        if args.port:
+            pkwargs["port"] = args.port
+
+    elif args.cmd == "http":
+        pkwargs["method"] = args.http_method
+        pkwargs["verify_ssl"] = not args.no_ssl_verify
+        if args.http_method == "ntlm" and args.domain:
+            pkwargs["domain"] = args.domain
+        if args.http_method == "form":
+            pkwargs.update({
+                "form_url": args.form_url,
+                "form_user_field": args.form_user_field,
+                "form_pass_field": args.form_pass_field,
+                "form_success": args.form_success,
+                "form_extra": args.form_extra,
+            })
+
+    elif args.cmd == "ssh":
+        pkwargs["port"] = args.port
+
+    elif args.cmd == "winrm":
+        pkwargs["use_ssl"] = args.ssl
+        if args.port:
+            pkwargs["port"] = args.port
+
+    elif args.cmd == "telnet":
+        pkwargs["port"] = args.port
+
+    elif args.cmd == "ftp":
+        pkwargs["port"] = args.port
+
+    elif args.cmd == "mysql":
+        pkwargs["port"] = args.port
+
+    elif args.cmd == "postgresql":
+        pkwargs["port"] = args.port
+
+    elif args.cmd == "mssql":
+        pkwargs["port"] = args.port
+
+    elif args.cmd == "oracle":
+        pkwargs["port"] = args.port
+        pkwargs["sid"] = args.sid
+
+    elif args.cmd == "mongodb":
+        pkwargs["port"] = args.port
+        pkwargs["auth_db"] = args.auth_db
+
+    elif args.cmd == "redis":
+        pkwargs["port"] = args.port
+
+    elif args.cmd == "imap":
+        pkwargs["use_ssl"] = args.ssl
+        if args.port:
+            pkwargs["port"] = args.port
+
+    elif args.cmd == "pop3":
+        pkwargs["use_ssl"] = args.ssl
+        if args.port:
+            pkwargs["port"] = args.port
+
+    elif args.cmd == "vnc":
+        pkwargs["port"] = args.port
+
+    return pkwargs
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="密码喷洒工具 — 仅限授权的渗透测试使用。",
@@ -367,124 +604,22 @@ def main():
   spray.py ldap  -t dc.corp.local -U users.txt -P passwords.txt --ssl
   spray.py http  -t https://mail.corp.com -U users.txt -p Spring2025! -p Summer2025!
   spray.py ssh   -t 192.168.1.10 -U users.txt --generate "{Season}{Year}{Special}"
-  spray.py winrm -t 192.168.1.10 -U users.txt -P base.txt -p Admin123! --generate "{Company}{Number}"
+  spray.py winrm -t 192.168.1.10 -U users.txt -P base.txt -p Admin123!
+  spray.py telnet -t 192.168.1.10 -U users.txt -P passwords.txt
+  spray.py mysql -t 192.168.1.10 -U users.txt -P passwords.txt
+  spray.py postgresql -t 192.168.1.10 -U users.txt -P passwords.txt
+  spray.py mssql -t 192.168.1.10 -U users.txt -P passwords.txt
+  spray.py oracle -t 192.168.1.10 -U users.txt -P passwords.txt --sid ORCL
+  spray.py mongodb -t 192.168.1.10 -U users.txt -P passwords.txt --auth-db admin
+  spray.py redis -t 192.168.1.10 -P passwords.txt -p ""
 
 恢复中断的喷洒:
-  spray.py smb   -t 192.168.1.10 -U users.txt -P passwords.txt --state-file state.json --resume
+  spray.py smb -t 192.168.1.10 -U users.txt -P passwords.txt --state-file state.json --resume
         """,
     )
 
     subparsers = parser.add_subparsers(dest="cmd", help="目标协议")
-
-    def add_common(p):
-        p.add_argument(
-            "-t", "--target", required=True,
-            help="目标 IP 或主机名",
-        )
-        p.add_argument(
-            "-U", "--users", required=True,
-            help="用户名字典文件，每行一个",
-        )
-        p.add_argument(
-            "-P", "--passwords", default=None,
-            help="密码字典文件，每行一个",
-        )
-        p.add_argument(
-            "-p", "--password", action="append", default=None,
-            help="直接指定单个密码（可多次使用）",
-        )
-        p.add_argument(
-            "--generate", action="append", default=None,
-            help="密码生成模板（可多次使用），如 '{Season}{Year}{Special}'",
-        )
-        p.add_argument(
-            "--company", default="",
-            help="公司名，用于模板中的 {Company} 替换",
-        )
-        p.add_argument(
-            "--year", type=int, default=None,
-            help="基准年份，用于模板中的 {Year}（默认当前年份）",
-        )
-        p.add_argument(
-            "--max-combinations", type=int, default=50000,
-            help="模板生成密码数上限（默认 50000）",
-        )
-        p.add_argument(
-            "-o", "--output",
-            help="结果输出文件 (.csv 或 .json)",
-        )
-        p.add_argument(
-            "--threads", type=int, default=5,
-            help="并发线程数（默认 5）",
-        )
-        p.add_argument(
-            "--delay", type=float, default=1.0,
-            help="每轮内尝试间隔秒数（默认 1.0）",
-        )
-        p.add_argument(
-            "--round-delay", type=float, default=300,
-            help="每轮之间间隔秒数（默认 300）",
-        )
-        p.add_argument(
-            "--state-file",
-            help="保存/恢复进度的 JSON 文件",
-        )
-        p.add_argument(
-            "--resume", action="store_true",
-            help="从状态文件恢复进度",
-        )
-        p.add_argument(
-            "--dry-run", action="store_true",
-            help="仅验证输入，不执行喷洒",
-        )
-
-    # SMB
-    p_smb = subparsers.add_parser("smb", help="SMB over TCP (port 445)")
-    add_common(p_smb)
-    p_smb.add_argument("-d", "--domain", default="", help="Windows 域名")
-
-    # LDAP
-    p_ldap = subparsers.add_parser("ldap", help="LDAP / LDAPS")
-    add_common(p_ldap)
-    p_ldap.add_argument("--ssl", action="store_true", help="使用 LDAPS (636)")
-    p_ldap.add_argument("--port", type=int, help="自定义端口")
-
-    # HTTP
-    p_http = subparsers.add_parser("http", help="HTTP / HTTPS")
-    add_common(p_http)
-    p_http.add_argument(
-        "--http-method", default="basic",
-        choices=["basic", "ntlm", "digest", "form"],
-        help="认证方式（默认 basic）",
-    )
-    p_http.add_argument("-d", "--domain", default="", help="NTLM 域名")
-    p_http.add_argument("--form-url", help="表单登录 POST URL")
-    p_http.add_argument("--form-user-field", default="username",
-                        help="用户名字段名（默认 username）")
-    p_http.add_argument("--form-pass-field", default="password",
-                        help="密码字段名（默认 password）")
-    p_http.add_argument("--form-success", help="响应中表示登录成功的字符串")
-    p_http.add_argument("--form-extra", help="额外表单字段: key=val,key=val")
-    p_http.add_argument("--no-ssl-verify", action="store_true",
-                        help="禁用 TLS 证书验证")
-
-    # SSH
-    p_ssh = subparsers.add_parser("ssh", help="SSH (port 22)")
-    add_common(p_ssh)
-    p_ssh.add_argument("--port", type=int, default=22, help="SSH 端口（默认 22）")
-
-    # WinRM
-    p_winrm = subparsers.add_parser("winrm", help="WinRM")
-    add_common(p_winrm)
-    p_winrm.add_argument(
-        "--ssl", action="store_true", default=True,
-        help="使用 HTTPS / 5986（默认）",
-    )
-    p_winrm.add_argument(
-        "--no-ssl", action="store_false", dest="ssl",
-        help="使用 HTTP / 5985",
-    )
-    p_winrm.add_argument("--port", type=int, help="自定义端口")
+    build_subparsers(subparsers)
 
     args = parser.parse_args()
 
@@ -548,37 +683,7 @@ def main():
     passwords = list(dict.fromkeys(passwords))
 
     # -- 协议参数 --------------------------------------------------------------
-    pkwargs = {}
-
-    if args.cmd == "smb":
-        pkwargs["domain"] = args.domain
-
-    elif args.cmd == "ldap":
-        pkwargs["use_ssl"] = args.ssl
-        if args.port:
-            pkwargs["port"] = args.port
-
-    elif args.cmd == "http":
-        pkwargs["method"] = args.http_method
-        pkwargs["verify_ssl"] = not args.no_ssl_verify
-        if args.http_method == "ntlm" and args.domain:
-            pkwargs["domain"] = args.domain
-        if args.http_method == "form":
-            pkwargs.update({
-                "form_url": args.form_url,
-                "form_user_field": args.form_user_field,
-                "form_pass_field": args.form_pass_field,
-                "form_success": args.form_success,
-                "form_extra": args.form_extra,
-            })
-
-    elif args.cmd == "ssh":
-        pkwargs["port"] = args.port
-
-    elif args.cmd == "winrm":
-        pkwargs["use_ssl"] = args.ssl
-        if args.port:
-            pkwargs["port"] = args.port
+    pkwargs = build_protocol_kwargs(args)
 
     # -- 试运行 ----------------------------------------------------------------
     if args.dry_run:
